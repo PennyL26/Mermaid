@@ -1,0 +1,304 @@
+/* ============================================================================
+   style.css — Visual design per spec (§14 colors, §21 panel colors,
+   §25 timer bar colors, §45-48 responsive & accessibility)
+   Uses system fonts only (§6 — no external font dependency).
+   ============================================================================ */
+
+:root {
+  --brown-dark: #4A2C17;
+  --pink-gradient-start: #FFC5D3;
+  --pink-gradient-end: #FFC0CB;
+  --affirmation-bg: #E89EB8;
+  --btn-magenta: #FF00FF;
+  --timer-normal: #FFB6C1;
+  --timer-warning: #FFC0CB;
+  --timer-critical: #FF69B4;
+  --timer-paused: #9E9E9E;
+  --focus-ring: #1a73e8;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow-x: hidden;
+  background: var(--pink-gradient-end);
+  color: var(--brown-dark);
+}
+
+#app {
+  min-height: 100vh;
+  width: 100%;
+}
+
+.screen {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.is-hidden { display: none !important; }
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+button:focus-visible,
+input:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* ---------- Loading ---------- */
+.loading-box { text-align: center; font-size: 1.2rem; font-weight: bold; }
+
+/* ---------- Home (Welcome) screen — §14 ---------- */
+.home-bg {
+  width: 100%;
+  min-height: 100vh;
+  background: linear-gradient(135deg, var(--pink-gradient-start), var(--pink-gradient-end));
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+}
+.mermaid-decor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: auto;
+  max-width: 42%;
+  object-fit: cover;
+  opacity: 0.9;
+  pointer-events: none;
+}
+.home-content {
+  position: relative;
+  z-index: 1;
+  max-width: 640px;
+  width: 100%;
+  text-align: center;
+  margin-left: auto;
+}
+.home-title {
+  font-family: "Brush Script MT", "Segoe Script", cursive, -apple-system, sans-serif;
+  font-weight: bold;
+  font-style: italic;
+  color: var(--brown-dark);
+  font-size: clamp(2rem, 6vw, 3.4rem);
+  margin: 0 0 1.5rem 0;
+}
+.affirmation-box {
+  background: var(--affirmation-bg);
+  color: var(--brown-dark);
+  border-radius: 1rem;
+  padding: 1.2rem 1.5rem;
+  margin: 0 auto 2rem auto;
+  max-width: 480px;
+  font-size: 1.05rem;
+  font-weight: 600;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+}
+
+/* ---------- Buttons ---------- */
+.btn {
+  border: none;
+  border-radius: 0.75rem;
+  padding: 0.9rem 1.8rem;
+  font-size: 1.05rem;
+  font-weight: bold;
+  min-height: 48px;
+  min-width: 48px;
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+.btn:active { transform: scale(0.96); }
+.btn-magenta {
+  background: var(--btn-magenta);
+  color: #fff;
+  box-shadow: 0 3px 8px rgba(255,0,255,0.35);
+}
+.btn-secondary {
+  background: #fff;
+  color: var(--brown-dark);
+  border: 2px solid var(--affirmation-bg);
+}
+.btn-menu {
+  background: #fff;
+  color: var(--brown-dark);
+  border: 2px solid var(--affirmation-bg);
+  padding: 1.4rem 1rem;
+  font-size: 1.2rem;
+  border-radius: 1rem;
+}
+.btn-menu:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn-answer { font-size: 1.3rem; padding: 1.1rem 2.2rem; border-radius: 1rem; color: #fff; }
+.btn-true { background: #4CAF50; }
+.btn-false { background: #E53935; }
+.btn-pause { background: #FFA000; color: #fff; margin-top: 1rem; }
+
+/* ---------- Menu ---------- */
+.menu-bg {
+  width: 100%;
+  max-width: 640px;
+  text-align: center;
+  padding: 2rem 1rem;
+}
+.menu-title { margin-bottom: 1.5rem; }
+.menu-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+.dataset-status { margin-top: 1.2rem; font-size: 0.9rem; opacity: 0.85; }
+
+/* ---------- Settings ---------- */
+.settings-panel {
+  width: 100%;
+  max-width: 560px;
+  background: #fff;
+  border-radius: 1rem;
+  padding: 1.5rem;
+  margin: 1rem;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+}
+fieldset { border: 1px solid #eee; border-radius: 0.6rem; margin-bottom: 1rem; padding: 0.8rem 1rem; }
+legend { font-weight: bold; padding: 0 0.4rem; }
+.radio-row { display: block; margin: 0.5rem 0; }
+.indent-field { margin: 0.4rem 0 0.6rem 1.6rem; }
+input[type="number"] {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 0.4rem;
+  font-size: 1rem;
+  margin-top: 0.3rem;
+}
+.settings-actions { display: flex; justify-content: space-between; gap: 1rem; margin-top: 1rem; }
+.error-text { color: #C62828; font-weight: bold; }
+
+/* ---------- Question screen — §22-26 ---------- */
+.question-container {
+  width: 100%;
+  max-width: 720px;
+  padding: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1rem;
+}
+.progress-indicator { text-align: center; font-weight: bold; margin: 0; }
+.question-panel {
+  background: #fff; /* overridden dynamically per panelColor setting */
+  border: 3px dashed var(--affirmation-bg);
+  border-radius: 1rem;
+  padding: 2rem 1.4rem;
+  min-height: 30vh;
+  max-height: 55vh;
+  overflow-y: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.question-text {
+  color: var(--brown-dark);
+  font-weight: bold;
+  font-size: clamp(1.1rem, 3.4vw, 2rem);
+  line-height: 1.35;
+  text-align: center;
+  overflow-wrap: break-word;
+}
+.timer-bar-track {
+  width: 100%;
+  height: 14px;
+  background: #f1f1f1;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.timer-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--timer-normal);
+  transition: width 0.1s linear, background-color 0.2s ease;
+}
+.answer-controls { display: flex; gap: 1rem; justify-content: center; }
+.btn-pause { align-self: center; }
+
+/* Fade transition between questions — §33, 1 second, pastel pink tones */
+.question-panel.fade-transition {
+  animation: fadeTransition 1s ease-in-out;
+}
+@keyframes fadeTransition {
+  0%   { background-color: var(--question-panel-bg, #fff); opacity: 1; }
+  50%  { background-color: #FFC5D3; opacity: 0.35; }
+  100% { background-color: var(--question-panel-bg, #fff); opacity: 1; }
+}
+
+/* ---------- Results ---------- */
+.results-panel, .review-panel, .error-panel {
+  width: 100%;
+  max-width: 560px;
+  background: #fff;
+  border-radius: 1rem;
+  padding: 1.5rem;
+  margin: 1rem;
+  text-align: center;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+}
+.results-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; text-align: left; margin: 1rem 0; }
+.results-grid dt { font-size: 0.85rem; opacity: 0.75; }
+.results-grid dd { font-size: 1.3rem; font-weight: bold; margin: 0; }
+.results-actions, .review-actions { display: flex; flex-direction: column; gap: 0.7rem; margin-top: 1rem; }
+
+.review-answer-grid { text-align: left; margin: 1rem 0; }
+.review-answer-grid dt { font-size: 0.85rem; opacity: 0.75; }
+.review-answer-grid dd { font-size: 1.1rem; font-weight: bold; margin: 0 0 0.6rem 0; }
+
+/* ---------- Connection banner ---------- */
+.connection-banner {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+  background: #C62828; color: #fff; text-align: center;
+  padding: 0.4rem; font-size: 0.85rem; font-weight: bold;
+}
+
+/* ---------- Orientation overlay — §46 ---------- */
+.orientation-overlay {
+  position: fixed; inset: 0; z-index: 100;
+  background: var(--pink-gradient-end);
+  display: flex; align-items: center; justify-content: center;
+  text-align: center; padding: 2rem; font-weight: bold; font-size: 1.2rem;
+}
+
+/* ---------- Confirm dialog ---------- */
+.confirm-dialog {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,0.4);
+  display: flex; align-items: center; justify-content: center;
+}
+.confirm-box {
+  background: #fff; border-radius: 1rem; padding: 1.5rem; max-width: 420px; text-align: center;
+}
+.confirm-actions { display: flex; gap: 1rem; justify-content: center; margin-top: 1rem; }
+
+/* ---------- Responsive (§45-46) ---------- */
+@media (max-width: 480px) {
+  .menu-grid { grid-template-columns: 1fr; }
+  .mermaid-decor { max-width: 30%; opacity: 0.5; }
+  .home-content { margin-left: 0; }
+}
+
+/* Portrait mobile orientation notice only applies on small/touch screens */
+@media (max-width: 900px) and (orientation: portrait) {
+  .orientation-overlay.is-active { display: flex; }
+}

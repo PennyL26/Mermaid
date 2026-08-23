@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>TRUE/FALSE Εξέταση — KUMITE &amp; KATA</title>
+<link rel="stylesheet" href="css/style.css" />
+<meta name="theme-color" content="#FFC0CB" />
+</head>
+<body>
+
+<!-- Offline/online indicator -->
+<div id="connectionBanner" class="connection-banner is-hidden" role="status" aria-live="polite"></div>
+
+<!-- Landscape-required overlay for mobile portrait mode (§46) -->
+<div id="orientationOverlay" class="orientation-overlay is-hidden" role="alert">
+  <p>Παρακαλώ περιστρέψτε τη συσκευή σε οριζόντια θέση.</p>
+</div>
+
+<main id="app" aria-live="polite">
+
+  <!-- ============ LOADING ============ -->
+  <section id="screen-loading" class="screen" data-screen="LOADING">
+    <div class="loading-box">
+      <p>Φόρτωση δεδομένων...</p>
+    </div>
+  </section>
+
+  <!-- ============ HOME (Welcome) ============ -->
+  <section id="screen-home" class="screen is-hidden" data-screen="HOME" aria-labelledby="homeTitle">
+    <div class="home-bg">
+      <img src="assets/mermaid.png" alt="" class="mermaid-decor" aria-hidden="true" />
+      <div class="home-content">
+        <h1 id="homeTitle" class="home-title">Γειά σου Penny!</h1>
+        <div id="affirmationBox" class="affirmation-box" aria-live="polite">
+          <p id="affirmationText">...</p>
+        </div>
+        <button id="btnWelcomeNext" class="btn btn-magenta" type="button">Καλώς ήρθες!</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ MAIN MENU (Kumite/Kata/Settings/Exit) ============ -->
+  <section id="screen-menu" class="screen is-hidden" data-screen="MENU" aria-labelledby="menuTitle">
+    <div class="menu-bg">
+      <h2 id="menuTitle" class="menu-title">Επιλέξτε εξέταση</h2>
+      <nav class="menu-grid">
+        <button id="btnStartKumite" class="btn btn-menu" type="button" disabled>KUMITE</button>
+        <button id="btnStartKata" class="btn btn-menu" type="button" disabled>KATA</button>
+        <button id="btnOpenSettings" class="btn btn-menu btn-icon" type="button" aria-label="Ρυθμίσεις">
+          ⚙ SETTINGS
+        </button>
+        <button id="btnExit" class="btn btn-menu" type="button">EXIT</button>
+      </nav>
+      <p id="datasetStatus" class="dataset-status" aria-live="polite"></p>
+    </div>
+  </section>
+
+  <!-- ============ SETTINGS ============ -->
+  <section id="screen-settings" class="screen is-hidden" data-screen="SETTINGS" aria-labelledby="settingsTitle">
+    <div class="settings-panel">
+      <h2 id="settingsTitle">Ρυθμίσεις</h2>
+      <form id="settingsForm">
+        <fieldset>
+          <legend>Χρόνος ερώτησης (δευτερόλεπτα)</legend>
+          <label for="settingQuestionTime">Δευτερόλεπτα ανά ερώτηση (4-60)</label>
+          <input type="number" id="settingQuestionTime" min="4" max="60" step="1" required />
+        </fieldset>
+
+        <fieldset>
+          <legend>Επιλογή &amp; σειρά ερωτήσεων</legend>
+          <label class="radio-row">
+            <input type="radio" name="selectionMode" id="mode-specific_random" value="specific_random" />
+            Συγκεκριμένος αριθμός τυχαίων ερωτήσεων
+          </label>
+          <div id="questionCountWrapper" class="indent-field">
+            <label for="settingQuestionCount">Αριθμός ερωτήσεων</label>
+            <input type="number" id="settingQuestionCount" min="1" step="1" />
+          </div>
+          <label class="radio-row">
+            <input type="radio" name="selectionMode" id="mode-all_ordered" value="all_ordered" />
+            Όλες οι ερωτήσεις με τη σειρά
+          </label>
+          <label class="radio-row">
+            <input type="radio" name="selectionMode" id="mode-all_random" value="all_random" />
+            Όλες οι ερωτήσεις σε τυχαία σειρά
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Χρώμα question panel</legend>
+          <label class="radio-row"><input type="radio" name="panelColor" id="panelColor-white" value="white" /> Λευκό</label>
+          <label class="radio-row"><input type="radio" name="panelColor" id="panelColor-pink" value="pink" /> Ανοιχτό Ροζ</label>
+          <label class="radio-row"><input type="radio" name="panelColor" id="panelColor-yellow" value="yellow" /> Ανοιχτό κίτρινο</label>
+          <label class="radio-row"><input type="radio" name="panelColor" id="panelColor-beige" value="beige" /> Ανοιχτό μπεζ</label>
+        </fieldset>
+
+        <p id="settingsError" class="error-text is-hidden" role="alert"></p>
+
+        <div class="settings-actions">
+          <button type="button" id="btnSettingsBack" class="btn btn-secondary">BACK</button>
+          <button type="submit" id="btnSettingsSave" class="btn btn-magenta">Αποθήκευση</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <!-- ============ QUESTION SCREEN (shared by KUMITE/KATA) ============ -->
+  <section id="screen-question" class="screen is-hidden" data-screen="QUESTION" aria-labelledby="progressIndicator">
+    <div class="question-container">
+      <p id="progressIndicator" class="progress-indicator">Ερώτηση 1 / 1</p>
+
+      <button id="questionPanel" type="button" class="question-panel" aria-label="Πατήστε για μετάβαση στην επόμενη ερώτηση αν δεν έχετε απαντήσει">
+        <span id="questionText" class="question-text"></span>
+      </button>
+
+      <div class="timer-bar-track" role="progressbar" aria-label="Χρόνος ερώτησης" aria-valuemin="0" aria-valuemax="100">
+        <div id="timerBarFill" class="timer-bar-fill"></div>
+      </div>
+
+      <div class="answer-controls">
+        <button id="btnTrue" type="button" class="btn btn-answer btn-true">TRUE</button>
+        <button id="btnFalse" type="button" class="btn btn-answer btn-false">FALSE</button>
+      </div>
+
+      <button id="btnPause" type="button" class="btn btn-pause">PAUSE</button>
+    </div>
+  </section>
+
+  <!-- ============ RESULTS ============ -->
+  <section id="screen-results" class="screen is-hidden" data-screen="RESULTS" aria-labelledby="resultsTitle">
+    <div class="results-panel">
+      <h2 id="resultsTitle">Αποτελέσματα</h2>
+      <dl class="results-grid">
+        <div><dt>Σύνολο ερωτήσεων</dt><dd id="resTotal">0</dd></div>
+        <div><dt>Σωστές απαντήσεις</dt><dd id="resCorrect">0</dd></div>
+        <div><dt>Λάθος απαντήσεις</dt><dd id="resWrong">0</dd></div>
+        <div><dt>Αναπάντητες</dt><dd id="resUnanswered">0</dd></div>
+        <div><dt>Ποσοστό επιτυχίας</dt><dd id="resPercent">0%</dd></div>
+      </dl>
+      <div class="results-actions">
+        <button id="btnReview" type="button" class="btn btn-secondary">REVIEW WRONG ANSWERS</button>
+        <button id="btnExport" type="button" class="btn btn-secondary">EXPORT RESULTS</button>
+        <button id="btnResultsHome" type="button" class="btn btn-magenta">HOME</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ REVIEW ============ -->
+  <section id="screen-review" class="screen is-hidden" data-screen="REVIEW" aria-labelledby="reviewTitle">
+    <div class="review-panel">
+      <h2 id="reviewTitle">Ανασκόπηση λαθών</h2>
+      <p id="reviewProgress" class="progress-indicator"></p>
+      <button id="reviewPanel" type="button" class="question-panel" aria-label="Πατήστε για την επόμενη ερώτηση ανασκόπησης">
+        <span id="reviewQuestionText" class="question-text"></span>
+      </button>
+      <dl class="review-answer-grid">
+        <div><dt>Η απάντησή σας</dt><dd id="reviewUserAnswer"></dd></div>
+        <div><dt>Σωστή απάντηση</dt><dd id="reviewCorrectAnswer"></dd></div>
+      </dl>
+      <div class="review-actions">
+        <button id="btnReviewBack" type="button" class="btn btn-secondary">BACK TO RESULTS</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ ERROR / GENERIC MESSAGE ============ -->
+  <section id="screen-error" class="screen is-hidden" data-screen="ERROR" aria-labelledby="errorTitle">
+    <div class="error-panel">
+      <h2 id="errorTitle">Παρουσιάστηκε πρόβλημα</h2>
+      <p id="errorMessage"></p>
+      <button id="btnErrorHome" type="button" class="btn btn-magenta">HOME</button>
+    </div>
+  </section>
+
+  <!-- ============ EXIT FALLBACK MESSAGE ============ -->
+  <section id="screen-exit" class="screen is-hidden" data-screen="EXIT" aria-labelledby="exitTitle">
+    <div class="error-panel">
+      <p id="exitMessage">Ευχαριστώ για τον χρόνο που διαθέσατε! Μπορείτε να κλείσετε αυτό το παράθυρο.</p>
+    </div>
+  </section>
+
+</main>
+
+<!-- Confirmation dialog (leave active exam) -->
+<div id="confirmDialog" class="confirm-dialog is-hidden" role="dialog" aria-modal="true" aria-labelledby="confirmDialogText">
+  <div class="confirm-box">
+    <p id="confirmDialogText"></p>
+    <div class="confirm-actions">
+      <button id="confirmCancel" type="button" class="btn btn-secondary">Cancel</button>
+      <button id="confirmOk" type="button" class="btn btn-magenta">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- SheetJS library: prefer local vendor copy (offline), fall back to CDN if absent.
+     See vendor/README.txt for why this project ships without the binary bundled. -->
+<script>
+  window.addEventListener('error', function (e) {
+    if (e && e.target && e.target.tagName === 'SCRIPT' && e.target.src && e.target.src.indexOf('vendor/xlsx.full.min.js') !== -1) {
+      var cdn = document.createElement('script');
+      cdn.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      document.head.appendChild(cdn);
+    }
+  }, true);
+</script>
+<script src="vendor/xlsx.full.min.js"></script>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
