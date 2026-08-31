@@ -1,438 +1,528 @@
-// ============================================================================
-// app.js — Application bootstrap & controller.
-// Wires: state machine (state.js) + quiz session (quiz.js) + rendering (ui.js)
-// + settings (settings.js) + excel loading (excel.js) + storage (storage.js).
-// ============================================================================
+// ============================================================
+// app.js — application bootstrap and event wiring.
+// Keeps orchestration logic; delegates rendering to ui.js,
+// data rules to excel.js/quiz.js, and timing to timer.js.
+// ============================================================
+import { appState, States } from "./state.js";
+import { collectDom, showScreenForState, applyPanelColor, updateTimerBarVisual, setTimerBarPausedVisual, renderQuestion, setAnswerButtonsEnabled, renderResults, renderReviewItem, announce } from "./ui.js";
+import { DATA_PATHS, DEFAULT_AFFIRMATION, loadQuestionDataset, loadAffirmationsDataset } from "./excel.js";
+import { QuizSession, buildQuestionSequence, resultMessageForPercent, QuestionStatus } from "./quiz.js";
+import { initSettingsForm } from "./settings.js";
+import { loadSettings } from "./storage.js";
+import { fisherYatesShuffle, formatTimestampForFilename, csvEscape, downloadBlob, devLog } from "./utils.js";
 
-import { DATA_PATHS, SWIPE_MIN_DISTANCE_PX, TRANSITION_DURATION_MS, EXPORT_EMAIL } from './config.js';
-import { AppState, AppStateMachine, QuestionStatus } from './state.js';
-import { loadQuestionDataset, loadAffirmationsDataset } from './excel.js';
-import { QuizSession } from './quiz.js';
-import { SettingsController } from './settings.js';
-import * as UI from './ui.js';
-import { qs, pickRandom, timestampForFilename, downloadTextFile, csvEscape } from './utils.js';
-import { logDev } from './config.js';
+const FADE_TRANSITION_MS = 1200;
+const MERMAID_IMAGE_COUNT = 13;
 
-// ---------------------------------------------------------------------------
-// Global application state (single source of truth for cross-module wiring)
-// ---------------------------------------------------------------------------
-const machine = new AppStateMachine();
-const settingsCtrl = new SettingsController();
+const dom = collectDom();
 
-let kumiteResult = { ok: false, records: [], error: null };
-let kataResult = { ok: false, records: [], error: null };
-let affirmationsResult = { ok: false, records: [] };
+/** @type {{KUMITE: object|null, KATA: object|null}} */
+const datasets = { KUMITE: null, KATA: null };
 
-let activeSession = null; // QuizSession | null
-let reviewList = [];
+/** @type {QuizSession|null} */
+let activeSession = null;
+
+/** @type {import('./quiz.js').QuestionStatus} */
 let reviewIndex = 0;
+let reviewItems = [];
 
-// ---------------------------------------------------------------------------
-// Boot sequence
-// ---------------------------------------------------------------------------
-async function boot() {
-  UI.showScreen('screen-loading');
+let affirmationBag = [];
 
+// ------------------------------------------------------------
+// Startup
+// ------------------------------------------------------------
+async function main() {
+  wireGlobalListeners();
+  checkProtocol();
+  registerServiceWorker();
+  pickRandomBackground();
+
+  appState.subscribe((next) => showScreenForState(dom, next));
+  showScreenForState(dom, appState.current); // paint LOADING immediately
+
+  try {
+    await loadAllDatasets();
+    prepareAffirmations();
+    initSettingsForm({
+      settingQuestionTime: dom.settingQuestionTime,
+      settingQuestionCount: dom.settingQuestionCount,
+      questionCountWrap: dom.questionCountWrap,
+      selectionModeRadios: dom.selectionModeRadios,
+      panelColorRadios: dom.panelColorRadios,
+    });
+    updateMenuAvailability();
+    appState.transition(States.WELCOME);
+  } catch (e) {
+    console.error("Fatal startup error", e);
+    showError("Παρουσιάστηκε απρόσμενο σφάλμα κατά την εκκίνηση της εφαρμογής.");
+  }
+}
+
+function checkProtocol() {
+  if (window.location.protocol === "file:") {
+    dom.protocolWarning.hidden = false;
+  }
+}
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  navigator.serviceWorker.register("sw.js").catch((e) => {
+    devLog("Service worker registration failed", e);
+    dom.swNotice.hidden = false;
+    setTimeout(() => (dom.swNotice.hidden = true), 6000);
+  });
+}
+
+function wireGlobalListeners() {
+  window.addEventListener("online", updateOnlineStatus);
+  window.addEventListener("offline", updateOnlineStatus);
+  updateOnlineStatus();
+
+  document.addEventListener("keydown", handleGlobalKeydown);
+
+  dom.kbHelpClose.addEventListener("click", () => (dom.kbHelp.hidden = true));
+
+  dom.startButton.addEventListener("click", () => appState.transition(States.HOME));
+
+  dom.btnKumite.addEventListener("click", () => startQuiz("KUMITE"));
+  dom.btnKata.addEventListener("click", () => startQuiz("KATA"));
+  dom.btnSettings.addEventListener("click", () => appState.transition(States.SETTINGS));
+  dom.btnExit.addEventListener("click", handleExit);
+
+  dom.settingsBack.addEventListener("click", () => appState.transition(States.HOME));
+
+  dom.pauseBtn.addEventListener("click", togglePause);
+  dom.resumeBtn.addEventListener("click", togglePause);
+  dom.trueBtn.addEventListener("click", () => handleAnswer("TRUE"));
+  dom.falseBtn.addEventListener("click", () => handleAnswer("FALSE"));
+
+  dom.questionPanel.addEventListener("click", () => handlePanelNext());
+  wireSwipe(dom.questionPanel, handlePanelNext);
+
+  dom.leaveCancel.addEventListener("click", () => (dom.leaveConfirm.hidden = true));
+  dom.leaveConfirmBtn.addEventListener("click", confirmLeaveQuiz);
+
+  dom.reviewBtn.addEventListener("click", startReview);
+  dom.reviewBack.addEventListener("click", () => appState.transition(States.RESULTS));
+  dom.reviewPanel.addEventListener("click", advanceReview);
+  wireSwipe(dom.reviewPanel, advanceReview);
+
+  dom.exportBtn.addEventListener("click", exportResults);
+  dom.homeBtn.addEventListener("click", finishToHome);
+
+  dom.errorHomeBtn.addEventListener("click", () => window.location.reload());
+}
+
+function updateOnlineStatus() {
+  dom.offlineBanner.hidden = navigator.onLine;
+}
+
+// ------------------------------------------------------------
+// Background decoration + affirmations
+// ------------------------------------------------------------
+function pickRandomBackground() {
+  const n = 1 + Math.floor(Math.random() * MERMAID_IMAGE_COUNT);
+  const url = `assets/mermaid-${n}.png`;
+  dom.homeBgDecor.style.backgroundImage = `url("${url}")`;
+  dom.menuBgDecor.style.backgroundImage = `url("${url}")`;
+}
+
+function prepareAffirmations() {
+  const loaded = datasets.AFFIRMATIONS;
+  const pool = loaded && loaded.valid && loaded.items.length > 0 ? loaded.items : [DEFAULT_AFFIRMATION];
+  affirmationBag = fisherYatesShuffle(pool);
+  showNextAffirmation(pool);
+}
+
+function showNextAffirmation(pool) {
+  if (affirmationBag.length === 0) affirmationBag = fisherYatesShuffle(pool);
+  const text = affirmationBag.pop();
+  dom.affirmationText.textContent = text;
+}
+
+// ------------------------------------------------------------
+// Dataset loading (KUMITE / KATA independent, spec section 12)
+// ------------------------------------------------------------
+async function loadAllDatasets() {
   const [kumite, kata, affirmations] = await Promise.all([
     loadQuestionDataset(DATA_PATHS.KUMITE),
     loadQuestionDataset(DATA_PATHS.KATA),
     loadAffirmationsDataset(DATA_PATHS.AFFIRMATIONS),
   ]);
-  kumiteResult = kumite;
-  kataResult = kata;
-  affirmationsResult = affirmations;
-
-  logDev('KUMITE dataset:', kumiteResult.ok ? `${kumiteResult.records.length} OK` : kumiteResult.error);
-  logDev('KATA dataset:', kataResult.ok ? `${kataResult.records.length} OK` : kataResult.error);
-  logDev('Affirmations dataset:', affirmationsResult.ok ? `${affirmationsResult.records.length} OK` : affirmationsResult.error);
-
-  goHome();
+  datasets.KUMITE = kumite;
+  datasets.KATA = kata;
+  datasets.AFFIRMATIONS = affirmations;
 }
 
-function goHome() {
-  machine.set(AppState.HOME);
-  const text = affirmationsResult.ok
-    ? pickRandom(affirmationsResult.records).text
-    : 'Καλή επιτυχία στην προπόνησή σου!';
-  UI.renderHome(text);
-  UI.showScreen('screen-home');
+function updateMenuAvailability() {
+  const MIN_QUESTIONS = 1;
+  const kumiteOk = datasets.KUMITE && datasets.KUMITE.valid && datasets.KUMITE.items.length >= MIN_QUESTIONS;
+  const kataOk = datasets.KATA && datasets.KATA.valid && datasets.KATA.items.length >= MIN_QUESTIONS;
+
+  dom.btnKumite.disabled = !kumiteOk;
+  dom.kumiteStatus.textContent = kumiteOk
+    ? `${datasets.KUMITE.items.length} ερωτήσεις διαθέσιμες`
+    : datasets.KUMITE?.errorReason || "Μη διαθέσιμο";
+
+  dom.btnKata.disabled = !kataOk;
+  dom.kataStatus.textContent = kataOk
+    ? `${datasets.KATA.items.length} ερωτήσεις διαθέσιμες`
+    : datasets.KATA?.errorReason || "Μη διαθέσιμο";
 }
 
-function goMenu() {
-  machine.set(AppState.HOME); // menu is a sub-state of HOME conceptually
-  const statusParts = [];
-  if (!kumiteResult.ok) statusParts.push(`KUMITE μη διαθέσιμο: ${kumiteResult.error}`);
-  if (!kataResult.ok) statusParts.push(`KATA μη διαθέσιμο: ${kataResult.error}`);
-  UI.renderMenu({
-    kumiteEnabled: kumiteResult.ok,
-    kataEnabled: kataResult.ok,
-    statusMessage: statusParts.join(' · '),
-  });
-  UI.showScreen('screen-menu');
+function showMenuMessage(text) {
+  dom.menuMessage.textContent = text;
+  dom.menuMessage.hidden = false;
+  setTimeout(() => {
+    dom.menuMessage.hidden = true;
+  }, 5000);
 }
 
-// ---------------------------------------------------------------------------
-// Settings screen
-// ---------------------------------------------------------------------------
-function openSettings() {
-  machine.set(AppState.SETTINGS);
-  settingsCtrl.renderToForm();
-  qs('#settingsError').classList.add('is-hidden');
-  UI.showScreen('screen-settings');
-}
-
-function handleSettingsSubmit(e) {
-  e.preventDefault();
-  const { ok, errors } = settingsCtrl.saveFromForm();
-  if (!ok) {
-    qs('#settingsError').textContent = errors.join(' ');
-    qs('#settingsError').classList.remove('is-hidden');
-    return;
-  }
-  UI.applyPanelColor(settingsCtrl.current.panelColor);
-  goMenu();
-}
-
-// ---------------------------------------------------------------------------
+// ------------------------------------------------------------
 // Starting a quiz
-// ---------------------------------------------------------------------------
-function startQuiz(discipline) {
-  const dataset = discipline === 'KUMITE' ? kumiteResult : kataResult;
-  if (!dataset.ok) {
-    UI.renderError(`Το dataset ${discipline} δεν είναι διαθέσιμο: ${dataset.error}`);
-    return;
-  }
-  const settingsSnapshot = settingsCtrl.getSnapshot(); // frozen at start (§15, §44)
-
-  if (settingsSnapshot.selectionMode === 'specific_random' &&
-      settingsSnapshot.questionCount > dataset.records.length) {
-    UI.renderError(
-      `Ζητήθηκαν ${settingsSnapshot.questionCount} ερωτήσεις αλλά το dataset ${discipline} διαθέτει μόνο ` +
-      `${dataset.records.length}. Μειώστε τον αριθμό ερωτήσεων στις Ρυθμίσεις.`
-    );
+// ------------------------------------------------------------
+function startQuiz(datasetName) {
+  const dataset = datasets[datasetName];
+  if (!dataset || !dataset.valid) {
+    showMenuMessage(`Τα δεδομένα για ${datasetName} δεν είναι διαθέσιμα.`);
     return;
   }
 
-  activeSession?.destroy();
-  activeSession = new QuizSession({
-    sourceRecords: dataset.records,
-    settingsSnapshot,
-    discipline,
-  });
+  // Settings snapshot is taken exactly once, at the moment the exam starts
+  // (spec section 15/44): it will not change even if Settings are edited later.
+  const settingsSnapshot = loadSettings();
 
-  UI.applyPanelColor(settingsSnapshot.panelColor);
-  activeSession.start();
-  machine.set(AppState.QUESTION_ACTIVE);
-  UI.showScreen('screen-question');
+  const sequenceResult = buildQuestionSequence(dataset.items, settingsSnapshot);
+  if (!sequenceResult.ok) {
+    showMenuMessage(sequenceResult.reason);
+    return;
+  }
+
+  activeSession = new QuizSession(datasetName, sequenceResult.questions, settingsSnapshot);
+  applyPanelColor(dom, settingsSnapshot.panelColor);
+
+  if (!appState.transition(States.QUIZ_READY)) return;
   showCurrentQuestion();
 }
 
 function showCurrentQuestion() {
-  const q = activeSession.currentQuestion;
-  UI.renderQuestion({ index: activeSession.currentIndex, total: activeSession.total, text: q.question });
-  UI.setPauseButtonLabel(false);
-  qs('#btnPause').disabled = false;
+  if (!activeSession) return;
+  renderQuestion(dom, activeSession);
+  setAnswerButtonsEnabled(dom, true);
+  dom.pauseOverlay.hidden = true;
 
-  activeSession.startTimerForCurrent({
-    onTick: (remainingMs, totalMs) => UI.renderTimerBar(remainingMs, totalMs, false),
-    onExpire: () => {
-      // completeQuestion() was already invoked by QuizSession internally on expire.
-      runTransitionToNext();
-    },
+  appState.transition(States.QUESTION_ACTIVE);
+
+  activeSession.startTimerForCurrentQuestion({
+    onTick: (fraction) => updateTimerBarVisual(dom, fraction, false),
+    onComplete: () => onQuestionResolved(null), // timeout -> unanswered
   });
-  machine.set(AppState.QUESTION_ACTIVE);
 }
 
-// ---------------------------------------------------------------------------
-// Answer / swipe / click handling — ALL funnel through completeQuestion()
-// ---------------------------------------------------------------------------
-function handleAnswer(userAnswer) {
-  if (!machine.is(AppState.QUESTION_ACTIVE)) return; // ignore during pause/transition
-  if (!activeSession || !activeSession.isQuestionAnswerable) return;
-  const completed = activeSession.completeQuestion({ type: 'answer', userAnswer });
-  if (completed) runTransitionToNext();
+// ------------------------------------------------------------
+// Answering / completing a question — every path funnels here.
+// ------------------------------------------------------------
+function handleAnswer(answer) {
+  if (!appState.is(States.QUESTION_ACTIVE)) return;
+  onQuestionResolved(answer);
 }
 
-function handleSwipeOrClickNext(sourceType) {
-  if (!machine.is(AppState.QUESTION_ACTIVE)) return;
-  if (!activeSession || !activeSession.isQuestionAnswerable) return;
-  const completed = activeSession.completeQuestion({ type: sourceType });
-  if (completed) runTransitionToNext();
+function handlePanelNext() {
+  if (!appState.is(States.QUESTION_ACTIVE)) return;
+  onQuestionResolved(null); // click/swipe-to-next without an answer = unanswered
 }
 
-function runTransitionToNext() {
-  machine.set(AppState.QUESTION_TRANSITION);
-  qs('#btnPause').disabled = true; // §35: pause unavailable during transition
-  const panel = qs('#questionPanel');
-  panel.classList.add('fade-transition');
+/**
+ * Single funnel for TRUE, FALSE, timeout, click, and swipe.
+ * QuizSession#completeQuestion() is itself idempotent, and the state
+ * machine's transition() is also guarded, giving two independent layers
+ * against double-completion race conditions (spec sections 28, 36).
+ */
+function onQuestionResolved(answer) {
+  if (!activeSession) return;
+  const completed = activeSession.completeQuestion(answer);
+  if (!completed) return; // already completed by a earlier, near-simultaneous event
 
-  setTimeout(() => {
-    panel.classList.remove('fade-transition');
-    activeSession.endTransition();
-    const advanced = activeSession.advance();
-    if (advanced) {
+  setAnswerButtonsEnabled(dom, false);
+  const moved = appState.transition(States.QUESTION_TRANSITION);
+  if (!moved) return;
+
+  runFadeTransition(() => {
+    // The quiz may have been abandoned (Esc -> confirm leave) while this
+    // fade was still pending — if so, there is nothing left to advance to.
+    if (!activeSession) return;
+    const hasNext = activeSession.advance();
+    if (hasNext) {
+      // showCurrentQuestion() transitions QUESTION_TRANSITION -> QUESTION_ACTIVE and starts the timer.
       showCurrentQuestion();
     } else {
       finishQuiz();
     }
-  }, TRANSITION_DURATION_MS);
-}
-
-// ---------------------------------------------------------------------------
-// Pause / Resume
-// ---------------------------------------------------------------------------
-function togglePause() {
-  if (machine.is(AppState.QUESTION_ACTIVE)) {
-    activeSession.pauseTimer();
-    machine.set(AppState.QUESTION_PAUSED);
-    UI.setPauseButtonLabel(true);
-    UI.renderTimerBar(activeSession.timer?.remainingMs ?? 0, activeSession.timer?.totalMs ?? 1, true);
-  } else if (machine.is(AppState.QUESTION_PAUSED)) {
-    activeSession.resumeTimer();
-    machine.set(AppState.QUESTION_ACTIVE);
-    UI.setPauseButtonLabel(false);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Results / Review
-// ---------------------------------------------------------------------------
-function finishQuiz() {
-  machine.set(AppState.RESULTS);
-  const results = activeSession.computeResults();
-  UI.renderResults(results);
-  reviewList = activeSession.getReviewList();
-  UI.setReviewButtonEnabled(reviewList.length > 0);
-  UI.showScreen('screen-results');
-}
-
-function openReview() {
-  if (reviewList.length === 0) return;
-  machine.set(AppState.REVIEW);
-  reviewIndex = 0;
-  UI.renderReviewItem(reviewList[reviewIndex], reviewIndex, reviewList.length);
-  UI.showScreen('screen-review');
-}
-
-function reviewNext() {
-  if (reviewIndex + 1 < reviewList.length) {
-    reviewIndex += 1;
-    UI.renderReviewItem(reviewList[reviewIndex], reviewIndex, reviewList.length);
-  } else {
-    // Wrapped past the end -> back to results, per natural flow
-    machine.set(AppState.RESULTS);
-    UI.showScreen('screen-results');
-  }
-}
-
-function backToResultsFromReview() {
-  machine.set(AppState.RESULTS);
-  UI.showScreen('screen-results');
-}
-
-function returnHomeFromResults() {
-  activeSession?.destroy();
-  activeSession = null;
-  reviewList = [];
-  goMenu();
-}
-
-// ---------------------------------------------------------------------------
-// Export results — §61
-// Note: automatic email delivery is not achievable from a pure client-side,
-// backend-less app (browsers cannot send SMTP mail on their own). Instead we
-// (a) trigger the two file downloads with the exact spec'd filenames, and
-// (b) open the user's mail client via a mailto: link pre-addressed to
-// soulouwarez@gmail.com with instructions to attach the just-downloaded
-// files, since mailto cannot attach files programmatically.
-// ---------------------------------------------------------------------------
-function exportResults() {
-  if (!activeSession) return;
-  const ts = timestampForFilename();
-  const csvName = `exam_results_${ts}.csv`;
-  const txtName = `exam_results_${ts}.txt`;
-
-  const csvRows = [['Number', 'Question', 'UserAnswer', 'CorrectAnswer', 'Status']];
-  for (let i = 0; i < activeSession.total; i++) {
-    const q = activeSession.questions[i];
-    const userAns = activeSession.answers[i];
-    csvRows.push([
-      q.number,
-      q.question,
-      userAns === null ? 'NO ANSWER' : (userAns ? 'TRUE' : 'FALSE'),
-      q.answer ? 'TRUE' : 'FALSE',
-      activeSession.statuses[i],
-    ]);
-  }
-  const csvContent = csvRows.map((row) => row.map(csvEscape).join(',')).join('\r\n');
-
-  const results = activeSession.computeResults();
-  const txtContent = [
-    `Exam results — ${activeSession.discipline}`,
-    `Date: ${activeSession.startedAt.toLocaleString('el-GR')}`,
-    `Total questions: ${results.total}`,
-    `Correct: ${results.correct}`,
-    `Wrong: ${results.wrong}`,
-    `Unanswered: ${results.unanswered}`,
-    `Score: ${results.scorePercent.toFixed(1)}%`,
-  ].join('\r\n');
-
-  downloadTextFile(csvName, csvContent, 'text/csv;charset=utf-8');
-  downloadTextFile(txtName, txtContent, 'text/plain;charset=utf-8');
-
-  const subject = encodeURIComponent(`Exam results ${ts}`);
-  const body = encodeURIComponent(
-    `Επισυνάψτε τα δύο αρχεία που μόλις κατέβηκαν (${csvName} και ${txtName}) πριν την αποστολή.`
-  );
-  window.location.href = `mailto:${EXPORT_EMAIL}?subject=${subject}&body=${body}`;
-}
-
-// ---------------------------------------------------------------------------
-// Exit
-// ---------------------------------------------------------------------------
-function attemptExit() {
-  const win = window.open('', '_self');
-  win.close();
-  // If we're still here after a tick, the browser blocked window.close().
-  setTimeout(() => {
-    UI.showScreen('screen-exit');
-  }, 50);
-}
-
-// ---------------------------------------------------------------------------
-// Swipe detection (touch) — §31
-// ---------------------------------------------------------------------------
-function attachSwipeHandler(panelEl, onSwipeNext) {
-  let startX = null, startY = null;
-  panelEl.addEventListener('touchstart', (e) => {
-    const t = e.changedTouches[0];
-    startX = t.clientX;
-    startY = t.clientY;
-  }, { passive: true });
-  panelEl.addEventListener('touchend', (e) => {
-    if (startX === null) return;
-    const t = e.changedTouches[0];
-    const dx = t.clientX - startX;
-    const dy = t.clientY - startY;
-    startX = null; startY = null;
-    if (Math.abs(dx) >= SWIPE_MIN_DISTANCE_PX && Math.abs(dx) > Math.abs(dy)) {
-      onSwipeNext(); // horizontal swipe only; vertical/diagonal ignored (§31)
-    }
-  }, { passive: true });
-}
-
-// ---------------------------------------------------------------------------
-// Online/offline + orientation watchers
-// ---------------------------------------------------------------------------
-function updateConnectionBanner() {
-  UI.showConnectionBanner(navigator.onLine);
-}
-
-function updateOrientationOverlay() {
-  const isSmallScreen = window.matchMedia('(max-width: 900px)').matches;
-  const isPortrait = window.matchMedia('(orientation: portrait)').matches;
-  const inQuestionFlow = machine.is(AppState.QUESTION_ACTIVE, AppState.QUESTION_PAUSED, AppState.QUESTION_TRANSITION);
-  UI.setOrientationOverlayActive(isSmallScreen && isPortrait && inQuestionFlow);
-}
-
-// ---------------------------------------------------------------------------
-// Keyboard shortcuts — §48
-// ---------------------------------------------------------------------------
-function attachKeyboardShortcuts() {
-  document.addEventListener('keydown', (e) => {
-    if (e.repeat) return;
-    const key = e.key.toLowerCase();
-
-    if (machine.is(AppState.QUESTION_ACTIVE)) {
-      if (key === 't') { handleAnswer(true); return; }
-      if (key === 'f') { handleAnswer(false); return; }
-      if (key === 'p') { togglePause(); return; }
-      if (key === ' ' || key === 'enter') { e.preventDefault(); handleSwipeOrClickNext('click'); return; }
-    } else if (machine.is(AppState.QUESTION_PAUSED)) {
-      if (key === 'p') { togglePause(); return; }
-    }
-
-    if (key === 'escape') {
-      handleEscapeKey();
-    }
   });
 }
 
-async function handleEscapeKey() {
-  if (machine.is(AppState.QUESTION_ACTIVE, AppState.QUESTION_PAUSED)) {
-    const wasActive = machine.is(AppState.QUESTION_ACTIVE);
-    if (wasActive) activeSession.pauseTimer();
-    const confirmed = await UI.showConfirmDialog(
-      'Are you sure you want to leave this examination? Current results will be lost.'
-    );
-    if (confirmed) {
-      activeSession?.destroy();
-      activeSession = null;
-      goMenu();
-    } else if (wasActive) {
-      activeSession.resumeTimer();
-    }
-  } else if (machine.is(AppState.SETTINGS)) {
-    goMenu();
-  } else if (machine.is(AppState.REVIEW)) {
-    backToResultsFromReview();
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Wire up all static DOM event listeners
-// ---------------------------------------------------------------------------
-function attachEventListeners() {
-  qs('#btnWelcomeNext').addEventListener('click', goMenu);
-  qs('#btnStartKumite').addEventListener('click', () => startQuiz('KUMITE'));
-  qs('#btnStartKata').addEventListener('click', () => startQuiz('KATA'));
-  qs('#btnOpenSettings').addEventListener('click', openSettings);
-  qs('#btnExit').addEventListener('click', attemptExit);
-
-  qs('#settingsForm').addEventListener('submit', handleSettingsSubmit);
-  qs('#btnSettingsBack').addEventListener('click', goMenu);
-  settingsCtrl.attachFormListeners();
-
-  qs('#btnTrue').addEventListener('click', () => handleAnswer(true));
-  qs('#btnFalse').addEventListener('click', () => handleAnswer(false));
-  qs('#btnPause').addEventListener('click', togglePause);
-  qs('#questionPanel').addEventListener('click', () => handleSwipeOrClickNext('click'));
-  attachSwipeHandler(qs('#questionPanel'), () => handleSwipeOrClickNext('swipe'));
-
-  qs('#btnReview').addEventListener('click', openReview);
-  qs('#btnExport').addEventListener('click', exportResults);
-  qs('#btnResultsHome').addEventListener('click', returnHomeFromResults);
-
-  qs('#reviewPanel').addEventListener('click', reviewNext);
-  attachSwipeHandler(qs('#reviewPanel'), reviewNext);
-  qs('#btnReviewBack').addEventListener('click', backToResultsFromReview);
-
-  qs('#btnErrorHome').addEventListener('click', goMenu);
-
-  window.addEventListener('online', updateConnectionBanner);
-  window.addEventListener('offline', updateConnectionBanner);
-  window.addEventListener('resize', updateOrientationOverlay);
-  window.addEventListener('orientationchange', updateOrientationOverlay);
-  machine.bus.on('change', updateOrientationOverlay);
-
-  attachKeyboardShortcuts();
-}
-
-// ---------------------------------------------------------------------------
-// Service worker registration (offline support — §6)
-// ---------------------------------------------------------------------------
-function registerServiceWorker() {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch((err) => {
-      console.error('Service worker registration failed:', err);
+function runFadeTransition(onMidpoint) {
+  dom.fadeOverlay.classList.add("is-active");
+  setTimeout(() => {
+    onMidpoint();
+    // Let the new content paint, then fade back out.
+    requestAnimationFrame(() => {
+      dom.fadeOverlay.classList.remove("is-active");
     });
+  }, FADE_TRANSITION_MS);
+}
+
+// ------------------------------------------------------------
+// Pause / Resume
+// ------------------------------------------------------------
+function togglePause() {
+  if (appState.is(States.QUESTION_ACTIVE)) {
+    activeSession.pauseTimer();
+    appState.transition(States.QUESTION_PAUSED);
+    dom.pauseOverlay.hidden = false;
+    setTimerBarPausedVisual(dom, true); // width stays exactly where it was
+  } else if (appState.is(States.QUESTION_PAUSED)) {
+    dom.pauseOverlay.hidden = true;
+    appState.transition(States.QUESTION_ACTIVE);
+    setTimerBarPausedVisual(dom, false);
+    activeSession.resumeTimer();
   }
 }
 
-// ---------------------------------------------------------------------------
-// Init
-// ---------------------------------------------------------------------------
-attachEventListeners();
-updateConnectionBanner();
-registerServiceWorker();
-boot();
+// ------------------------------------------------------------
+// Leaving an active quiz
+// ------------------------------------------------------------
+function handleGlobalKeydown(e) {
+  // Keyboard Shortcuts Help — available everywhere.
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "?") {
+    e.preventDefault();
+    dom.kbHelp.hidden = !dom.kbHelp.hidden;
+    return;
+  }
+  if (!dom.kbHelp.hidden && e.key === "Escape") {
+    dom.kbHelp.hidden = true;
+    return;
+  }
+
+  // Shortcuts are disabled on Settings / Review / Results to avoid conflicts
+  // with form inputs and accidental exits (spec section 48).
+  if (appState.is(States.SETTINGS, States.REVIEW, States.RESULTS)) return;
+
+  const inQuiz = appState.is(States.QUESTION_ACTIVE, States.QUESTION_PAUSED, States.QUESTION_TRANSITION);
+
+  // If focus is on a control that has its own native Space/Enter activation
+  // (TRUE/FALSE/Pause/Resume buttons), let the browser handle it natively
+  // instead of racing our own "advance" shortcut against it.
+  const selfHandlingControls = [dom.trueBtn, dom.falseBtn, dom.pauseBtn, dom.resumeBtn];
+  const focusIsOnOwnControl = selfHandlingControls.includes(document.activeElement);
+
+  switch (e.key) {
+    case " ":
+    case "Enter":
+      if (appState.is(States.QUESTION_ACTIVE) && !focusIsOnOwnControl) {
+        e.preventDefault();
+        handlePanelNext();
+      }
+      break;
+    case "t":
+    case "T":
+      if (appState.is(States.QUESTION_ACTIVE)) handleAnswer("TRUE");
+      break;
+    case "f":
+    case "F":
+      if (appState.is(States.QUESTION_ACTIVE)) handleAnswer("FALSE");
+      break;
+    case "p":
+    case "P":
+      if (appState.is(States.QUESTION_ACTIVE, States.QUESTION_PAUSED)) togglePause();
+      break;
+    case "Escape":
+      if (inQuiz) {
+        e.preventDefault();
+        requestLeaveQuiz();
+      }
+      break;
+  }
+}
+
+function requestLeaveQuiz() {
+  // Pause first (if active) so time doesn't keep running behind the modal.
+  if (appState.is(States.QUESTION_ACTIVE)) togglePause();
+  dom.leaveConfirm.hidden = false;
+}
+
+function confirmLeaveQuiz() {
+  dom.leaveConfirm.hidden = true;
+  if (activeSession) {
+    activeSession.destroy();
+    activeSession = null;
+  }
+  // Force back to HOME regardless of whether we were ACTIVE/PAUSED/TRANSITION.
+  forceStateTo(States.HOME);
+}
+
+/** Bypass the strict transition table for an explicit user-initiated abandon. */
+function forceStateTo(target) {
+  const ok = appState.transition(target);
+  if (!ok) {
+    // Direct transition not legal from current state (e.g. QUESTION_PAUSED);
+    // step through QUESTION_ACTIVE first, which IS always a legal exit point.
+    appState.transition(States.QUESTION_ACTIVE);
+    appState.transition(target === States.HOME ? States.HOME : target);
+  }
+}
+
+// ------------------------------------------------------------
+// Finishing a quiz -> Results
+// ------------------------------------------------------------
+function finishQuiz() {
+  appState.transition(States.RESULTS);
+  const summary = activeSession.computeResultsSummary();
+  const band = resultMessageForPercent(summary.percent);
+  renderResults(dom, summary, band);
+
+  const reviewable = activeSession.getReviewableQuestions();
+  dom.reviewBtn.disabled = reviewable.length === 0;
+  dom.reviewBtn.textContent =
+    reviewable.length === 0 ? "Δεν υπάρχουν λανθασμένες απαντήσεις" : "REVIEW WRONG ANSWERS";
+  dom.exportBtn.hidden = false;
+
+  announce(dom, `Η εξέταση ολοκληρώθηκε. Ποσοστό επιτυχίας ${summary.percent.toFixed(1)} τοις εκατό.`);
+}
+
+function finishToHome() {
+  if (activeSession) {
+    activeSession.destroy();
+    activeSession = null;
+  }
+  appState.transition(States.HOME);
+}
+
+// ------------------------------------------------------------
+// Review Wrong Answers
+// ------------------------------------------------------------
+function startReview() {
+  if (!activeSession) return;
+  reviewItems = activeSession.getReviewableQuestions();
+  if (reviewItems.length === 0) return;
+  reviewIndex = 0;
+  appState.transition(States.REVIEW);
+  renderReviewItem(dom, reviewItems[reviewIndex], reviewIndex, reviewItems.length);
+}
+
+function advanceReview() {
+  if (!appState.is(States.REVIEW)) return;
+  reviewIndex = (reviewIndex + 1) % reviewItems.length; // wrap around for continuous browsing
+  renderReviewItem(dom, reviewItems[reviewIndex], reviewIndex, reviewItems.length);
+}
+
+// ------------------------------------------------------------
+// Export results (spec section 61)
+// ------------------------------------------------------------
+function exportResults() {
+  if (!activeSession) return;
+  const ts = formatTimestampForFilename();
+  const summary = activeSession.computeResultsSummary();
+
+  const csvLines = ["Number,Question,UserAnswer,CorrectAnswer,Status"];
+  for (const r of activeSession.results) {
+    csvLines.push(
+      [
+        r.number,
+        csvEscape(r.text),
+        r.userAnswer === null ? "NO ANSWER" : r.userAnswer,
+        r.correctAnswer,
+        r.status,
+      ].join(",")
+    );
+  }
+  const csvContent = "\uFEFF" + csvLines.join("\r\n"); // UTF-8 BOM for correct Greek display in Excel
+  downloadBlob(new Blob([csvContent], { type: "text/csv;charset=utf-8" }), `Lovely_Penny_${ts}.csv`);
+
+  const txtLines = [
+    `Εξέταση: ${activeSession.datasetName}`,
+    `Ημερομηνία: ${new Date(activeSession.startedAt).toLocaleString("el-GR")}`,
+    `Σύνολο ερωτήσεων: ${summary.total}`,
+    `Σωστές: ${summary.correct}`,
+    `Λάθος: ${summary.wrong}`,
+    `Αναπάντητες: ${summary.unanswered}`,
+    `Ποσοστό επιτυχίας: ${summary.percent.toFixed(1)}%`,
+  ];
+  downloadBlob(new Blob([txtLines.join("\r\n")], { type: "text/plain;charset=utf-8" }), `exam_results_${ts}.txt`);
+}
+
+// ------------------------------------------------------------
+// Exit
+// ------------------------------------------------------------
+function handleExit() {
+  dom.exitMessage.hidden = true;
+  let closed = false;
+  try {
+    window.close();
+    // Some browsers silently ignore window.close() on a tab they didn't open,
+    // rather than throwing — detect that by checking visibility shortly after.
+    closed = window.closed;
+  } catch (e) {
+    closed = false;
+  }
+  if (!closed) {
+    dom.exitMessage.hidden = false;
+  }
+}
+
+// ------------------------------------------------------------
+// Error screen
+// ------------------------------------------------------------
+function showError(message) {
+  dom.errorMessage.textContent = message;
+  appState.transition(States.ERROR);
+}
+
+// ------------------------------------------------------------
+// Swipe gesture detection (spec section 31)
+// horizontal distance > 50px AND vertical distance < 30px = swipe-next
+// ------------------------------------------------------------
+function wireSwipe(el, onSwipeNext) {
+  let startX = 0;
+  let startY = 0;
+  let tracking = false;
+
+  el.addEventListener(
+    "touchstart",
+    (e) => {
+      if (e.touches.length !== 1) return;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      tracking = true;
+    },
+    { passive: true }
+  );
+
+  el.addEventListener(
+    "touchmove",
+    () => {
+      // Distance is computed on touchend; touchmove only needs to keep the
+      // browser's default vertical-scroll behavior available (touch-action: pan-y).
+    },
+    { passive: true }
+  );
+
+  el.addEventListener(
+    "touchend",
+    (e) => {
+      if (!tracking) return;
+      tracking = false;
+      const touch = e.changedTouches[0];
+      if (!touch) return;
+      const dx = touch.clientX - startX;
+      const dy = touch.clientY - startY;
+      if (Math.abs(dx) > 50 && Math.abs(dy) < 30) {
+        onSwipeNext();
+      }
+      // Vertical or diagonal swipes are ignored entirely (not treated as NEXT).
+    },
+    { passive: true }
+  );
+}
+
+main();

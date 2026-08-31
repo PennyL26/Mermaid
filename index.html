@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#FFC0CB">
+<title>Penny — Karate TRUE/FALSE</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ============ Global protocol warning (file://) ============ -->
+<div id="protocolWarning" class="protocol-warning" role="alert" hidden>
+  <div class="protocol-warning__box">
+    <p>Η εφαρμογή πρέπει να εκτελείται μέσω web server (π.χ. Live Server, Python HTTP, GitHub Pages). Παρακαλώ χρησιμοποιήστε έναν τοπικό server.</p>
+  </div>
+</div>
+
+<!-- ============ Offline banner ============ -->
+<div id="offlineBanner" class="offline-banner" role="status" hidden>Είσαι εκτός σύνδεσης — η εφαρμογή λειτουργεί με τα τοπικά αποθηκευμένα δεδομένα.</div>
+<div id="swNotice" class="offline-banner" role="status" hidden>Η offline λειτουργία δεν είναι διαθέσιμη σε αυτόν τον browser — η εφαρμογή συνεχίζει κανονικά online.</div>
+
+<div id="app" class="app" aria-live="polite">
+
+  <!-- ============ LOADING ============ -->
+  <section id="screen-loading" class="screen screen--loading" aria-hidden="true">
+    <div class="loading-box">
+      <div class="loading-spinner" aria-hidden="true"></div>
+      <p>Φόρτωση...</p>
+    </div>
+  </section>
+
+  <!-- ============ HOME (welcome) ============ -->
+  <section id="screen-home" class="screen screen--home" aria-hidden="true">
+    <div class="bg-decor" id="homeBgDecor" aria-hidden="true"></div>
+    <div class="home-content">
+      <h1 class="home-title">Γειά σου Penny!</h1>
+      <div class="affirmation-box" id="affirmationBox">
+        <p id="affirmationText">Καλή επιτυχία στην προσπάθειά σου Αγάπη μου!</p>
+      </div>
+      <button id="startButton" class="btn btn--magenta" type="button">Καλώς ήρθες Penny! Μπορείς να ξεκινήσεις αστέρι μου!</button>
+    </div>
+  </section>
+
+  <!-- ============ MENU (kumite/kata/settings/exit) ============ -->
+  <section id="screen-menu" class="screen screen--menu" aria-hidden="true">
+    <div class="bg-decor" id="menuBgDecor" aria-hidden="true"></div>
+    <div class="menu-content">
+      <h2 class="menu-title">Τι θα εξετάσουμε σήμερα;</h2>
+      <div class="menu-grid">
+        <button id="btnKumite" class="menu-btn menu-btn--kumite" type="button" disabled>
+          <span class="menu-btn__label">KUMITE</span>
+          <span class="menu-btn__status" id="kumiteStatus">Φόρτωση...</span>
+        </button>
+        <button id="btnKata" class="menu-btn menu-btn--kata" type="button" disabled>
+          <span class="menu-btn__label">KATA</span>
+          <span class="menu-btn__status" id="kataStatus">Φόρτωση...</span>
+        </button>
+        <button id="btnSettings" class="menu-btn menu-btn--settings" type="button" aria-label="Ρυθμίσεις">
+          <span class="gear-icon" aria-hidden="true">&#9881;</span>
+          <span class="menu-btn__label">SETTINGS</span>
+        </button>
+        <button id="btnExit" class="menu-btn menu-btn--exit" type="button">
+          <span class="menu-btn__label">EXIT</span>
+        </button>
+      </div>
+      <p id="menuMessage" class="menu-message" role="alert" hidden></p>
+      <p id="exitMessage" class="exit-message" hidden>Ευχαριστώ για τον χρόνο σου Penny! Μπορείς να κλείσεις αυτό το παράθυρο τώρα. Ανυπομονώ για την επόμενη φορά!</p>
+    </div>
+  </section>
+
+  <!-- ============ SETTINGS ============ -->
+  <section id="screen-settings" class="screen screen--settings" aria-hidden="true">
+    <div class="panel">
+      <div class="panel__header">
+        <button id="settingsBack" class="btn-back" type="button" aria-label="Πίσω">&#8592; BACK</button>
+        <h2>Ρυθμίσεις</h2>
+      </div>
+
+      <form id="settingsForm" class="settings-form">
+        <fieldset class="field-group">
+          <legend>Χρόνος ερώτησης (δευτερόλεπτα)</legend>
+          <input type="number" id="settingQuestionTime" min="6" max="60" step="1" required>
+          <p class="hint">Από 6 έως 60 δευτερόλεπτα.</p>
+        </fieldset>
+
+        <fieldset class="field-group">
+          <legend>Επιλογή &amp; σειρά ερωτήσεων</legend>
+          <label class="radio-row">
+            <input type="radio" name="selectionMode" value="specific_random" id="modeSpecific">
+            Συγκεκριμένος αριθμός τυχαίων ερωτήσεων
+          </label>
+          <div class="field-indent" id="questionCountWrap">
+            <label for="settingQuestionCount">Αριθμός ερωτήσεων</label>
+            <input type="number" id="settingQuestionCount" min="1" step="1">
+          </div>
+          <label class="radio-row">
+            <input type="radio" name="selectionMode" value="all_ordered" id="modeOrdered">
+            Όλες οι ερωτήσεις με τη σειρά
+          </label>
+          <label class="radio-row">
+            <input type="radio" name="selectionMode" value="all_random" id="modeRandom">
+            Όλες οι ερωτήσεις σε τυχαία σειρά
+          </label>
+        </fieldset>
+
+        <fieldset class="field-group">
+          <legend>Χρώμα πλαισίου ερώτησης</legend>
+          <div class="color-options" role="radiogroup" aria-label="Χρώμα πλαισίου ερώτησης">
+            <label class="color-option">
+              <input type="radio" name="panelColor" value="white">
+              <span class="swatch swatch--white"></span> Λευκό
+            </label>
+            <label class="color-option">
+              <input type="radio" name="panelColor" value="pink">
+              <span class="swatch swatch--pink"></span> Ανοιχτό Ροζ
+            </label>
+            <label class="color-option">
+              <input type="radio" name="panelColor" value="yellow">
+              <span class="swatch swatch--yellow"></span> Ανοιχτό κίτρινο
+            </label>
+            <label class="color-option">
+              <input type="radio" name="panelColor" value="beige">
+              <span class="swatch swatch--beige"></span> Ανοιχτό μπεζ
+            </label>
+          </div>
+        </fieldset>
+
+        <p class="settings-note">Οι ρυθμίσεις εφαρμόζονται στην επόμενη εξέταση.</p>
+      </form>
+    </div>
+  </section>
+
+  <!-- ============ QUESTION (kumite/kata shared) ============ -->
+  <section id="screen-quiz" class="screen screen--quiz" aria-hidden="true">
+    <div class="quiz-topbar">
+      <span id="quizProgress" class="quiz-progress" aria-live="polite">Ερώτηση 1 / 1</span>
+      <button id="pauseBtn" class="btn-pause" type="button" aria-label="Παύση">PAUSE</button>
+    </div>
+
+    <div id="questionPanel" class="question-panel" tabindex="0" role="button" aria-label="Ερώτηση — πατήστε ή κάντε swipe για μετάβαση">
+      <p id="questionText" class="question-text">&nbsp;</p>
+    </div>
+
+    <div class="timerbar-wrap">
+      <div id="timerBar" class="timerbar" role="progressbar" aria-label="Χρόνος ερώτησης" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
+    </div>
+
+    <div class="answer-buttons">
+      <button id="trueBtn" class="btn-answer btn-answer--true" type="button">TRUE</button>
+      <button id="falseBtn" class="btn-answer btn-answer--false" type="button">FALSE</button>
+    </div>
+
+    <div id="pauseOverlay" class="pause-overlay" hidden>
+      <div class="pause-overlay__box">
+        <p>Παύση</p>
+        <button id="resumeBtn" class="btn btn--magenta" type="button">RESUME</button>
+      </div>
+    </div>
+
+    <div id="leaveConfirm" class="modal" hidden role="alertdialog" aria-modal="true">
+      <div class="modal__box">
+        <p>Are you sure you want to leave this examination? Current results will be lost.</p>
+        <div class="modal__actions">
+          <button id="leaveCancel" class="btn btn--outline" type="button">Cancel</button>
+          <button id="leaveConfirmBtn" class="btn btn--danger" type="button">Confirm</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="fadeOverlay" class="fade-overlay" aria-hidden="true"></div>
+  </section>
+
+  <!-- ============ RESULTS ============ -->
+  <section id="screen-results" class="screen screen--results" aria-hidden="true">
+    <div class="results-content">
+      <h2>Αποτελέσματα</h2>
+      <div id="resultMessageBox" class="result-message-box">
+        <p id="resultMessageText"></p>
+      </div>
+
+      <div class="results-stats" id="resultsStats">
+        <div class="stat"><span class="stat__label">Σύνολο ερωτήσεων</span><span class="stat__value" id="statTotal">0</span></div>
+        <div class="stat stat--correct"><span class="stat__label">Correct</span><span class="stat__value" id="statCorrect">0</span></div>
+        <div class="stat stat--wrong"><span class="stat__label">Wrong</span><span class="stat__value" id="statWrong">0</span></div>
+        <div class="stat stat--unanswered"><span class="stat__label">Unanswered</span><span class="stat__value" id="statUnanswered">0</span></div>
+        <div class="stat stat--percent"><span class="stat__label">Ποσοστό επιτυχίας</span><span class="stat__value" id="statPercent">0%</span></div>
+      </div>
+
+      <div class="results-actions">
+        <button id="reviewBtn" class="btn btn--outline" type="button">REVIEW WRONG ANSWERS</button>
+        <button id="exportBtn" class="btn btn--outline" type="button" hidden>EXPORT RESULTS</button>
+        <button id="homeBtn" class="btn btn--magenta" type="button">HOME</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ REVIEW ============ -->
+  <section id="screen-review" class="screen screen--review" aria-hidden="true">
+    <div class="quiz-topbar">
+      <span id="reviewProgress" class="quiz-progress">1 / 1</span>
+      <button id="reviewBack" class="btn-back" type="button">&#8592; BACK</button>
+    </div>
+    <div id="reviewPanel" class="question-panel review-panel" tabindex="0" role="button" aria-label="Ανασκόπηση — πατήστε ή κάντε swipe για την επόμενη">
+      <p id="reviewQuestionText" class="question-text">&nbsp;</p>
+      <div class="review-answers">
+        <p><strong>Η επιλογή σου:</strong> <span id="reviewUserAnswer">—</span></p>
+        <p><strong>Σωστή απάντηση:</strong> <span id="reviewCorrectAnswer">—</span></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ ERROR ============ -->
+  <section id="screen-error" class="screen screen--error" aria-hidden="true">
+    <div class="panel">
+      <h2>Κάτι δεν πήγε καλά</h2>
+      <p id="errorMessage">Παρουσιάστηκε σφάλμα.</p>
+      <button id="errorHomeBtn" class="btn btn--magenta" type="button">Επιστροφή στην Αρχική</button>
+    </div>
+  </section>
+
+</div>
+
+<!-- Keyboard shortcuts help modal -->
+<div id="kbHelp" class="modal" hidden role="dialog" aria-modal="true" aria-label="Συντομεύσεις πληκτρολογίου">
+  <div class="modal__box">
+    <h3>Συντομεύσεις πληκτρολογίου</h3>
+    <ul class="kb-list">
+      <li><kbd>Space</kbd> / <kbd>Enter</kbd> — Επόμενη ερώτηση</li>
+      <li><kbd>T</kbd> — TRUE</li>
+      <li><kbd>F</kbd> — FALSE</li>
+      <li><kbd>P</kbd> — PAUSE / RESUME</li>
+      <li><kbd>Esc</kbd> — Αρχική (με επιβεβαίωση)</li>
+      <li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>/</kbd> — Αυτή η βοήθεια</li>
+    </ul>
+    <button id="kbHelpClose" class="btn btn--magenta" type="button">Κλείσιμο</button>
+  </div>
+</div>
+
+<div id="ariaLiveRegion" class="sr-only" aria-live="assertive"></div>
+
+<script src="vendor/xlsx.full.min.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

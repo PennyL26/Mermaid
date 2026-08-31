@@ -1,135 +1,186 @@
-// ============================================================================
-// ui.js — Pure(ish) DOM rendering helpers. No app/quiz state lives here;
-// callers pass in the data to render. Screen switching is centralized in
-// showScreen() so exactly one <section class="screen"> is visible at a time.
-// ============================================================================
+// ============================================================
+// ui.js — DOM references + rendering helpers.
+// No business logic here — just "given this data, paint the screen".
+// ============================================================
+import { QuestionStatus } from "./quiz.js";
 
-import { qs, qsa, pct } from './utils.js';
-import { PANEL_COLORS, TIMER_BAR_COLORS } from './config.js';
-import { QuestionStatus } from './state.js';
+/** Collect every DOM node the app needs, once, at startup. */
+export function collectDom() {
+  return {
+    // global
+    protocolWarning: document.getElementById("protocolWarning"),
+    offlineBanner: document.getElementById("offlineBanner"),
+    ariaLiveRegion: document.getElementById("ariaLiveRegion"),
 
-const SCREEN_IDS = [
-  'screen-loading', 'screen-home', 'screen-menu', 'screen-settings',
-  'screen-question', 'screen-results', 'screen-review', 'screen-error', 'screen-exit',
-];
+    // screens
+    screens: {
+      LOADING: document.getElementById("screen-loading"),
+      WELCOME: document.getElementById("screen-home"),
+      HOME: document.getElementById("screen-menu"),
+      SETTINGS: document.getElementById("screen-settings"),
+      QUESTION_ACTIVE: document.getElementById("screen-quiz"),
+      QUESTION_PAUSED: document.getElementById("screen-quiz"),
+      QUESTION_TRANSITION: document.getElementById("screen-quiz"),
+      QUIZ_READY: document.getElementById("screen-quiz"),
+      RESULTS: document.getElementById("screen-results"),
+      REVIEW: document.getElementById("screen-review"),
+      ERROR: document.getElementById("screen-error"),
+    },
 
-/** Shows exactly one screen by DOM id, hides all others. */
-export function showScreen(id) {
-  for (const sid of SCREEN_IDS) {
-    const node = document.getElementById(sid);
-    if (!node) continue;
-    node.classList.toggle('is-hidden', sid !== id);
+    // home / welcome
+    homeBgDecor: document.getElementById("homeBgDecor"),
+    menuBgDecor: document.getElementById("menuBgDecor"),
+    affirmationText: document.getElementById("affirmationText"),
+    startButton: document.getElementById("startButton"),
+
+    // menu
+    btnKumite: document.getElementById("btnKumite"),
+    btnKata: document.getElementById("btnKata"),
+    btnSettings: document.getElementById("btnSettings"),
+    btnExit: document.getElementById("btnExit"),
+    kumiteStatus: document.getElementById("kumiteStatus"),
+    kataStatus: document.getElementById("kataStatus"),
+    exitMessage: document.getElementById("exitMessage"),
+
+    // settings
+    settingsBack: document.getElementById("settingsBack"),
+    settingQuestionTime: document.getElementById("settingQuestionTime"),
+    settingQuestionCount: document.getElementById("settingQuestionCount"),
+    questionCountWrap: document.getElementById("questionCountWrap"),
+    selectionModeRadios: Array.from(document.querySelectorAll('input[name="selectionMode"]')),
+    panelColorRadios: Array.from(document.querySelectorAll('input[name="panelColor"]')),
+
+    // quiz
+    quizProgress: document.getElementById("quizProgress"),
+    pauseBtn: document.getElementById("pauseBtn"),
+    questionPanel: document.getElementById("questionPanel"),
+    questionText: document.getElementById("questionText"),
+    timerBar: document.getElementById("timerBar"),
+    trueBtn: document.getElementById("trueBtn"),
+    falseBtn: document.getElementById("falseBtn"),
+    pauseOverlay: document.getElementById("pauseOverlay"),
+    resumeBtn: document.getElementById("resumeBtn"),
+    leaveConfirm: document.getElementById("leaveConfirm"),
+    leaveCancel: document.getElementById("leaveCancel"),
+    leaveConfirmBtn: document.getElementById("leaveConfirmBtn"),
+    fadeOverlay: document.getElementById("fadeOverlay"),
+
+    // results
+    resultMessageBox: document.getElementById("resultMessageBox"),
+    resultMessageText: document.getElementById("resultMessageText"),
+    statTotal: document.getElementById("statTotal"),
+    statCorrect: document.getElementById("statCorrect"),
+    statWrong: document.getElementById("statWrong"),
+    statUnanswered: document.getElementById("statUnanswered"),
+    statPercent: document.getElementById("statPercent"),
+    reviewBtn: document.getElementById("reviewBtn"),
+    exportBtn: document.getElementById("exportBtn"),
+    homeBtn: document.getElementById("homeBtn"),
+
+    // review
+    reviewProgress: document.getElementById("reviewProgress"),
+    reviewBack: document.getElementById("reviewBack"),
+    reviewPanel: document.getElementById("reviewPanel"),
+    reviewQuestionText: document.getElementById("reviewQuestionText"),
+    reviewUserAnswer: document.getElementById("reviewUserAnswer"),
+    reviewCorrectAnswer: document.getElementById("reviewCorrectAnswer"),
+
+    // error
+    errorMessage: document.getElementById("errorMessage"),
+    errorHomeBtn: document.getElementById("errorHomeBtn"),
+
+    // keyboard help modal
+    kbHelp: document.getElementById("kbHelp"),
+    kbHelpClose: document.getElementById("kbHelpClose"),
+  };
+}
+
+let lastShownScreenEl = null;
+
+/** Show the DOM screen associated with `stateName`; hide all others. */
+export function showScreenForState(dom, stateName) {
+  const target = dom.screens[stateName];
+  if (!target) return;
+  if (target === lastShownScreenEl) return; // avoid redundant DOM churn
+  for (const el of new Set(Object.values(dom.screens))) {
+    const isTarget = el === target;
+    el.classList.toggle("is-active", isTarget);
+    el.setAttribute("aria-hidden", isTarget ? "false" : "true");
   }
+  lastShownScreenEl = target;
 }
 
-export function renderHome(affirmationText) {
-  qs('#affirmationText').textContent = affirmationText || '';
+const PANEL_COLOR_CLASSES = ["question-panel--white", "question-panel--pink", "question-panel--yellow", "question-panel--beige"];
+
+export function applyPanelColor(dom, colorKey) {
+  dom.questionPanel.classList.remove(...PANEL_COLOR_CLASSES);
+  dom.questionPanel.classList.add(`question-panel--${colorKey}`);
+  dom.reviewPanel.classList.remove(...PANEL_COLOR_CLASSES);
+  dom.reviewPanel.classList.add(`question-panel--${colorKey}`);
 }
 
-export function renderMenu({ kumiteEnabled, kataEnabled, statusMessage }) {
-  qs('#btnStartKumite').disabled = !kumiteEnabled;
-  qs('#btnStartKata').disabled = !kataEnabled;
-  qs('#datasetStatus').textContent = statusMessage || '';
-}
-
-export function applyPanelColor(colorKey) {
-  const hex = PANEL_COLORS[colorKey] || PANEL_COLORS.white;
-  document.documentElement.style.setProperty('--question-panel-bg', hex);
-  const panel = qs('#questionPanel');
-  if (panel) panel.style.background = hex;
-  const reviewPanel = qs('#reviewPanel');
-  if (reviewPanel) reviewPanel.style.background = hex;
-}
-
-export function renderQuestion({ index, total, text }) {
-  qs('#progressIndicator').textContent = `Ερώτηση ${index + 1} / ${total}`;
-  qs('#questionText').textContent = text;
-}
-
-/** Updates the timer bar width + color band per spec §25. */
-export function renderTimerBar(remainingMs, totalMs, isPaused) {
-  const remainPct = totalMs > 0 ? Math.max(0, Math.min(100, (remainingMs / totalMs) * 100)) : 0;
-  const elapsedPct = 100 - remainPct;
-  const fill = qs('#timerBarFill');
-  if (!fill) return;
-  fill.style.width = `${elapsedPct}%`;
-
-  let color;
-  if (isPaused) color = TIMER_BAR_COLORS.paused;
-  else if (remainPct <= 10) color = TIMER_BAR_COLORS.critical;
-  else if (remainPct <= 25) color = TIMER_BAR_COLORS.warning;
-  else color = TIMER_BAR_COLORS.normal;
-  fill.style.backgroundColor = color;
-
-  const track = qs('.timer-bar-track');
-  if (track) track.setAttribute('aria-valuenow', String(Math.round(elapsedPct)));
-}
-
-export function setPauseButtonLabel(isPaused) {
-  const btn = qs('#btnPause');
-  if (btn) btn.textContent = isPaused ? 'RESUME' : 'PAUSE';
-}
-
-export function renderResults({ total, correct, wrong, unanswered, scorePercent }) {
-  qs('#resTotal').textContent = String(total);
-  qs('#resCorrect').textContent = String(correct);
-  qs('#resWrong').textContent = String(wrong);
-  qs('#resUnanswered').textContent = String(unanswered);
-  qs('#resPercent').textContent = `${scorePercent.toFixed(1)}%`;
-}
-
-export function setReviewButtonEnabled(enabled) {
-  const btn = qs('#btnReview');
-  btn.disabled = !enabled;
-  btn.title = enabled ? '' : 'Δεν υπάρχουν λανθασμένες ή αναπάντητες ερωτήσεις.';
-}
-
-export function renderReviewItem(item, index, total) {
-  qs('#reviewProgress').textContent = `Ανασκόπηση ${index + 1} / ${total}`;
-  qs('#reviewQuestionText').textContent = `#${item.number}: ${item.question}`;
-  qs('#reviewUserAnswer').textContent = item.userAnswer === null
-    ? 'NO ANSWER'
-    : (item.userAnswer ? 'TRUE' : 'FALSE');
-  qs('#reviewCorrectAnswer').textContent = item.correctAnswer ? 'TRUE' : 'FALSE';
-}
-
-export function renderError(message) {
-  qs('#errorMessage').textContent = message;
-  showScreen('screen-error');
-}
-
-export function showConnectionBanner(isOnline) {
-  const banner = qs('#connectionBanner');
-  if (!banner) return;
-  if (isOnline) {
-    banner.classList.add('is-hidden');
-  } else {
-    banner.textContent = 'Είστε εκτός σύνδεσης — η εφαρμογή συνεχίζει να λειτουργεί με τα δεδομένα που έχουν ήδη φορτωθεί.';
-    banner.classList.remove('is-hidden');
+/**
+ * Timer bar (spec section 25). The BAR WIDTH represents elapsed time —
+ * it starts at 0% and grows linearly to 100% exactly when time runs out.
+ * The BAR COLOR reflects time REMAINING, so it stays calm for most of the
+ * question and only turns critical (hot pink) near the very end.
+ */
+export function updateTimerBarVisual(dom, fraction, isPaused) {
+  const elapsedPercent = Math.max(0, Math.min(100, fraction * 100));
+  const remainingPercent = 100 - elapsedPercent;
+  dom.timerBar.style.width = `${elapsedPercent}%`;
+  dom.timerBar.setAttribute("aria-valuenow", String(Math.round(elapsedPercent)));
+  dom.timerBar.classList.remove("state-warning", "state-critical", "state-paused");
+  if (isPaused) {
+    dom.timerBar.classList.add("state-paused");
+  } else if (remainingPercent <= 10) {
+    dom.timerBar.classList.add("state-critical");
+  } else if (remainingPercent <= 25) {
+    dom.timerBar.classList.add("state-warning");
   }
+  // else: normal color from the base .timerbar rule
 }
 
-export function setOrientationOverlayActive(active) {
-  qs('#orientationOverlay').classList.toggle('is-active', active);
+/** Recolor the timer bar to the paused state without touching its width. */
+export function setTimerBarPausedVisual(dom, isPaused) {
+  dom.timerBar.classList.toggle("state-paused", isPaused);
 }
 
-export function showConfirmDialog(message) {
-  return new Promise((resolve) => {
-    const dialog = qs('#confirmDialog');
-    qs('#confirmDialogText').textContent = message;
-    dialog.classList.remove('is-hidden');
+export function renderQuestion(dom, session) {
+  const q = session.currentQuestion;
+  dom.questionText.textContent = q.text;
+  dom.quizProgress.textContent = `Ερώτηση ${session.currentIndex + 1} / ${session.total}`;
+  dom.timerBar.style.width = "0%";
+  dom.timerBar.classList.remove("state-warning", "state-critical", "state-paused");
+}
 
-    const cleanup = (result) => {
-      dialog.classList.add('is-hidden');
-      okBtn.removeEventListener('click', onOk);
-      cancelBtn.removeEventListener('click', onCancel);
-      resolve(result);
-    };
-    const okBtn = qs('#confirmOk');
-    const cancelBtn = qs('#confirmCancel');
-    const onOk = () => cleanup(true);
-    const onCancel = () => cleanup(false);
-    okBtn.addEventListener('click', onOk);
-    cancelBtn.addEventListener('click', onCancel);
+export function setAnswerButtonsEnabled(dom, enabled) {
+  dom.trueBtn.disabled = !enabled;
+  dom.falseBtn.disabled = !enabled;
+}
+
+export function renderResults(dom, summary, band) {
+  dom.statTotal.textContent = String(summary.total);
+  dom.statCorrect.textContent = String(summary.correct);
+  dom.statWrong.textContent = String(summary.wrong);
+  dom.statUnanswered.textContent = String(summary.unanswered);
+  dom.statPercent.textContent = `${summary.percent.toFixed(1)}%`;
+
+  dom.resultMessageText.textContent = band.text;
+  dom.resultMessageText.style.color = band.color;
+}
+
+export function renderReviewItem(dom, item, index, total) {
+  dom.reviewProgress.textContent = `${index + 1} / ${total}`;
+  dom.reviewQuestionText.textContent = item.text;
+  dom.reviewUserAnswer.textContent = item.status === QuestionStatus.UNANSWERED ? "NO ANSWER" : item.userAnswer;
+  dom.reviewCorrectAnswer.textContent = item.correctAnswer;
+}
+
+export function announce(dom, message) {
+  dom.ariaLiveRegion.textContent = "";
+  // Re-trigger for screen readers even if the text is identical to before.
+  requestAnimationFrame(() => {
+    dom.ariaLiveRegion.textContent = message;
   });
 }

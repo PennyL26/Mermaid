@@ -1,70 +1,77 @@
-// ============================================================================
-// storage.js — Persist & retrieve Settings via localStorage.
-// If stored data is missing/corrupt/invalid, silently fall back to defaults
-// on a PER-FIELD basis (spec §20, Test 17 & 18).
-// ============================================================================
+// ============================================================
+// storage.js — localStorage-backed settings persistence
+// All defaults are centralized here (spec section 20).
+// ============================================================
+import { clampInt, devLog } from "./utils.js";
 
-import { SETTINGS_STORAGE_KEY, DEFAULT_SETTINGS, TIMER_MIN_SECONDS, TIMER_MAX_SECONDS, PANEL_COLORS } from './config.js';
+const STORAGE_KEY = "penny_app_settings_v1";
 
-const VALID_SELECTION_MODES = new Set(['specific_random', 'all_ordered', 'all_random']);
-const VALID_PANEL_COLORS = new Set(Object.keys(PANEL_COLORS));
+export const DEFAULT_SETTINGS = Object.freeze({
+  questionTime: 15, // seconds
+  selectionMode: "specific_random", // 'specific_random' | 'all_ordered' | 'all_random'
+  questionCount: 20,
+  panelColor: "white", // 'white' | 'pink' | 'yellow' | 'beige'
+  timerBarColor: "#4CAF50",
+});
 
-function isValidQuestionTime(v) {
-  return Number.isFinite(v) && Number.isInteger(v) && v >= TIMER_MIN_SECONDS && v <= TIMER_MAX_SECONDS;
-}
-function isValidQuestionCount(v) {
-  return Number.isFinite(v) && Number.isInteger(v) && v > 0;
-}
-function isValidHexColor(v) {
-  return typeof v === 'string' && /^#([0-9A-Fa-f]{6})$/.test(v);
-}
+export const QUESTION_TIME_MIN = 6;
+export const QUESTION_TIME_MAX = 60;
+
+const VALID_MODES = ["specific_random", "all_ordered", "all_random"];
+const VALID_COLORS = ["white", "pink", "yellow", "beige"];
 
 /**
- * Loads settings from localStorage, validating each field independently.
- * Any missing/corrupt field falls back to its own default — a single bad
- * field never invalidates the whole settings object.
+ * Load settings from localStorage, validating every field.
+ * Any corrupt/missing/out-of-range field silently falls back to default,
+ * per spec section 20 ("Αν το localStorage περιέχει corrupt ή μη έγκυρες τιμές...").
  */
 export function loadSettings() {
   let raw = null;
   try {
-    const str = localStorage.getItem(SETTINGS_STORAGE_KEY);
-    if (str) raw = JSON.parse(str);
+    const text = window.localStorage.getItem(STORAGE_KEY);
+    if (text) raw = JSON.parse(text);
   } catch (e) {
-    console.error('Corrupt settings JSON in localStorage, using defaults.', e);
+    devLog("Corrupt settings JSON, using defaults", e);
     raw = null;
   }
-  if (!raw || typeof raw !== 'object') raw = {};
+  if (!raw || typeof raw !== "object") raw = {};
 
-  const settings = { ...DEFAULT_SETTINGS };
+  const questionTime = clampInt(
+    raw.questionTime,
+    QUESTION_TIME_MIN,
+    QUESTION_TIME_MAX,
+    DEFAULT_SETTINGS.questionTime
+  );
 
-  if (isValidQuestionTime(raw.questionTimeSeconds)) {
-    settings.questionTimeSeconds = raw.questionTimeSeconds;
-  }
-  if (VALID_SELECTION_MODES.has(raw.selectionMode)) {
-    settings.selectionMode = raw.selectionMode;
-  }
-  if (isValidQuestionCount(raw.questionCount)) {
-    settings.questionCount = raw.questionCount;
-  }
-  if (VALID_PANEL_COLORS.has(raw.panelColor)) {
-    settings.panelColor = raw.panelColor;
-  }
-  if (isValidHexColor(raw.timerBarColor)) {
-    settings.timerBarColor = raw.timerBarColor;
-  }
+  const selectionMode = VALID_MODES.includes(raw.selectionMode)
+    ? raw.selectionMode
+    : DEFAULT_SETTINGS.selectionMode;
 
-  return settings;
+  const questionCountRaw = Number(raw.questionCount);
+  const questionCount =
+    Number.isFinite(questionCountRaw) && Number.isInteger(questionCountRaw) && questionCountRaw > 0
+      ? questionCountRaw
+      : DEFAULT_SETTINGS.questionCount;
+
+  const panelColor = VALID_COLORS.includes(raw.panelColor)
+    ? raw.panelColor
+    : DEFAULT_SETTINGS.panelColor;
+
+  const timerBarColor =
+    typeof raw.timerBarColor === "string" && /^#[0-9A-Fa-f]{6}$/.test(raw.timerBarColor)
+      ? raw.timerBarColor
+      : DEFAULT_SETTINGS.timerBarColor;
+
+  return { questionTime, selectionMode, questionCount, panelColor, timerBarColor };
 }
 
-/** Persist settings object to localStorage. */
+/** Persist settings to localStorage. Fails silently (best-effort). */
 export function saveSettings(settings) {
   try {
-    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
     return true;
   } catch (e) {
-    console.error('Failed to save settings to localStorage.', e);
+    devLog("Failed to save settings", e);
     return false;
   }
 }
-
-export { isValidQuestionTime, isValidQuestionCount };
